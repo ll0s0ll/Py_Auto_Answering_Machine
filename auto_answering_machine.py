@@ -97,7 +97,7 @@ class PhoneCallback(pj.AccountCallback, pj.CallCallback):
             print "Media is now active"
             
             # 実行
-            self.func.update()
+            self.func.changeState(self.func.State_Intro(self.func))
 
         else:
             print "Media is inactive"
@@ -181,7 +181,7 @@ class Func_AnsweringMachine(FunctionBase):
 
         print "長さ（秒）:", math.ceil(float(wr.getnframes()) / wr.getframerate())
         
-        # 小数点切り上げした値を返す
+        # 小数点切り上げしたファイルの長さ(秒)を返す
         return math.ceil(float(wr.getnframes()) / wr.getframerate())
 
 
@@ -192,9 +192,11 @@ class Func_AnsweringMachine(FunctionBase):
         if text == None:
             return -1
 
+        """
         # 電話が切れている場合はリターン
         if current_call == None:
             return -1
+        """
 
         # textを音声に変換したwavファイルを作成。
         if self.createWavfile(text) == 0:
@@ -202,90 +204,125 @@ class Func_AnsweringMachine(FunctionBase):
 
         # 再生
         try: 
-            self.player = pj.Lib.instance().create_player(self.TMPFILE_PATH, False)
+            player = pj.Lib.instance().create_player(self.TMPFILE_PATH, False)
         except Exception, e:
             print "Error playing greeting", e
             return -1
         
         try: 
-            if self.player != -1:
-                player_slot = pj.Lib.instance().player_get_slot(self.player)
-                call_slot = current_call.info().conf_slot
-                pj.Lib.instance().conf_connect(player_slot, call_slot)
+            #if self.player != -1:
+            player_slot = pj.Lib.instance().player_get_slot(player)
+            call_slot = current_call.info().conf_slot
+            pj.Lib.instance().conf_connect(player_slot, call_slot)
         except Exception, e:
             print "An error occured.", e
-            return -1
+            return player
         
         # 音声データを削除
         try:
             subprocess.check_call(["rm", self.TMPFILE_PATH])
         except subprocess.CalledProcessError, (p):
             print 'subprocess.CalledProcessError: cmd:%s returncode:%s' % (p.cmd, p.returncode)
-            return -1
 
-        return self.player
+        return player
 
 
     class State_Intro(StateBase):
-        func = None
-        player = None
-        
+        """
+        自己紹介文を発話する。
+        入力されたDTMFにより、ステートを変化させる。
+        """
         def __init__(self, func):
             self.func = func
+            self.player = -1
 
         def enter(self):
             print "State_Intro enter()"
-
+            msg = "こんにちは。こちらはラズベリーパイです。CPU温度を知りたい場合は、1を。メモリ状況を知りたい場合は、2を。起動時間を知りたい場合は、3を入力してください。途中で使い方を確認したくなった場合は0を入力してください。"
+            self.player = self.func.speak(msg)
 
         def execute(self, dtmf=-1):
             print "State_Intro execute() %s" % dtmf
 
-            if dtmf == -1:
-                msg = "こんにちは。CPU温度を知りたい場合は、1を。メモリ状況を知りたい場合は、2を。起動時間を知りたい場合は、3を入力してください。"
-
-                self.player = self.func.speak(msg)
-
-            elif dtmf == "1":
+            if dtmf == "1":
+                # CPU温度ステートに変更
                 self.func.changeState(self.func.State_CPUTemp(self.func))
+            elif dtmf == "2":
+                # メモリ状況ステートに変更
+                self.func.changeState(self.func.State_MemState(self.func))
+            elif dtmf == "3":
+                # 起動時間ステートに変更
+                self.func.changeState(self.func.State_Uptime(self.func))
 
         def exit(self):
             print "State_Intro exit()"
 
-            global current_call
+            # 音声の再生に使ったプレイヤーの後処理をする
+            if self.player != -1:
+                player_slot = pj.Lib.instance().player_get_slot(self.player)
+                call_slot = current_call.info().conf_slot
+                pj.Lib.instance().conf_disconnect(player_slot, call_slot)
+                pj.Lib.instance().player_destroy(self.player)
 
-            # 回線が切断されている場合はリターン
-            if current_call == None:
-                print "切断されているわよ"
-                return
+    class State_Help(StateBase):
+        """
+        使い方の説明を発話する。
+        """
+        def __init__(self, func):
+            self.func = func
+            self.player = -1
+
+        def enter(self):
+            print "State_Help enter()"
+            msg = "CPU温度を知りたい場合は、1を。メモリ状況を知りたい場合は、2を。起動時間を知りたい場合は、3を入力してください。途中で使い方を確認したくなった場合は0を入力してください。"
+            self.player = self.func.speak(msg)
+
+        def execute(self, dtmf=-1):
+            print "State_Help execute() %s" % dtmf
+
+            if dtmf == "1":
+                # CPU温度ステートに変更
+                self.func.changeState(self.func.State_CPUTemp(self.func))
+            elif dtmf == "2":
+                # メモリ状況ステートに変更
+                self.func.changeState(self.func.State_MemState(self.func))
+            elif dtmf == "3":
+                # 起動時間ステートに変更
+                self.func.changeState(self.func.State_Uptime(self.func))
+
+        def exit(self):
+            print "State_Help exit()"
 
             # 音声の再生に使ったプレイヤーの後処理をする
-            player_slot = pj.Lib.instance().player_get_slot(self.player)
-            call_slot = current_call.info().conf_slot
-            pj.Lib.instance().conf_disconnect(player_slot, call_slot)
-            pj.Lib.instance().player_destroy(self.player)
+            if self.player != -1:
+                player_slot = pj.Lib.instance().player_get_slot(self.player)
+                call_slot = current_call.info().conf_slot
+                pj.Lib.instance().conf_disconnect(player_slot, call_slot)
+                pj.Lib.instance().player_destroy(self.player)
 
 
     class State_CPUTemp(StateBase):
         """
         「ただいまのCPU温度はXX度です」と発話する。
         """
-        func = None
-        player = None
-
         def __init__(self, func):
             self.func = func
+            self.player = -1
             
         # Override
         def enter(self):
             print "State_CPUTemp enter()"
-
+            
+            # CPU温度を取得
             temp = self.getCPUTemp()
 
+            # 発話内容を作成。
             if temp != "":
                 msg = "ただいまのCPU温度は%s度です。" % temp
             else:
                 msg = "CPU温度の取得に失敗しました。"
 
+            # 発話
             self.player = self.func.speak(msg)
 
         # Override
@@ -293,26 +330,28 @@ class Func_AnsweringMachine(FunctionBase):
             print "State_CPUTemp execute() %s" % dtmf
 
             if dtmf == "0":
-                self.func.changeState(self.func.State_Intro(self.func))
+                # イントロステートに変更
+                self.func.changeState(self.func.State_Help(self.func))
             elif dtmf == "1":
+                # CPU温度ステートに変更
                 self.func.changeState(self.func.State_CPUTemp(self.func))
+            elif dtmf == "2":
+                # メモリ状況ステートに変更
+                self.func.changeState(self.func.State_MemState(self.func))
+            elif dtmf == "3":
+                # 起動時間ステートに変更
+                self.func.changeState(self.func.State_Uptime(self.func))
                 
         # Override
         def exit(self):
             print "State_CPUTemp exit()"
 
-            global current_call
-
-            # 回線が切断されている場合はリターン
-            if current_call == None:
-                print "切断されているわよ"
-                return
-
             # 音声の再生に使ったプレイヤーの後処理をする
-            player_slot = pj.Lib.instance().player_get_slot(self.player)
-            call_slot = current_call.info().conf_slot
-            pj.Lib.instance().conf_disconnect(player_slot, call_slot)
-            pj.Lib.instance().player_destroy(self.player)
+            if self.player != -1:
+                player_slot = pj.Lib.instance().player_get_slot(self.player)
+                call_slot = current_call.info().conf_slot
+                pj.Lib.instance().conf_disconnect(player_slot, call_slot)
+                pj.Lib.instance().player_destroy(self.player)
 
 
         def getCPUTemp(self):
@@ -320,12 +359,177 @@ class Func_AnsweringMachine(FunctionBase):
             CPU温度を取得して文字列で返す
             """
             try:
-                self.s = subprocess.check_output(["/opt/vc/bin/vcgencmd","measure_temp"])
-                self.val = str(self.s.split('=')[1][:-3])
+                s = subprocess.check_output(["/opt/vc/bin/vcgencmd","measure_temp"])
+                val = str(s.split('=')[1][:-3])
             except:
-                self.val = ""
+                val = ""
 
-            return self.val
+            return val
+
+    class State_MemState(StateBase):
+        """
+        「ただいまのメモリ状況は、トータルXXメガバイト中、XXメガバイトを使用、XXメガバイトの空きです。」と発話する。
+        """
+        def __init__(self, func):
+            self.func = func
+            self.player = -1
+            
+        # Override
+        def enter(self):
+            print "State_MemState enter()"
+            
+            # メモリ状況を取得
+            mem = self.getMemState()
+
+            # 発話内容を作成。
+            if mem != "":
+                msg = "ただいまのメモリ状況は、トータル%sメガバイト中、%sメガバイトを使用、%sメガバイトの空きです。" % mem
+            else:
+                msg = "メモリ状況の取得に失敗しました。"
+
+            # 発話
+            self.player = self.func.speak(msg)
+
+        # Override
+        def execute(self, dtmf=-1):
+            print "State_MemState execute() %s" % dtmf
+
+            if dtmf == "0":
+                # イントロステートに変更
+                self.func.changeState(self.func.State_Help(self.func))
+            elif dtmf == "1":
+                # CPU温度ステートに変更
+                self.func.changeState(self.func.State_CPUTemp(self.func))
+            elif dtmf == "2":
+                # メモリ状況ステートに変更
+                self.func.changeState(self.func.State_MemState(self.func))
+            elif dtmf == "3":
+                # 起動時間ステートに変更
+                self.func.changeState(self.func.State_Uptime(self.func))
+                
+        # Override
+        def exit(self):
+            print "State_MemState exit()"
+
+            # 音声の再生に使ったプレイヤーの後処理をする
+            if self.player != -1:
+                player_slot = pj.Lib.instance().player_get_slot(self.player)
+                call_slot = current_call.info().conf_slot
+                pj.Lib.instance().conf_disconnect(player_slot, call_slot)
+                pj.Lib.instance().player_destroy(self.player)
+
+
+        def getMemState(self):
+            """
+            メモリの状況を取得。
+            Return: タプル (total, used, free)
+            """
+            try:
+                # メモリの状況を取得
+                s = subprocess.check_output(["free", "-m"])
+                
+                # こんな感じのデータが返される
+                #              total       used       free     shared    buffers     cached
+                # Mem:           438        117        321          0         15         58
+                # -/+ buffers/cache:         43        395
+                # Swap:           99          0         99
+
+                # 一行づつに分割
+                tmp = s.split('\n')
+
+                # " "で分割
+                tmp = tmp[1].split()
+                
+                # 戻り値を作成
+                val = (tmp[1], tmp[2], tmp[3])
+            except:
+                val = ""
+
+            return val
+
+
+    class State_Uptime(StateBase):
+        """
+        「起動してから、%s分経ちました。」と発話する。
+        """
+        def __init__(self, func):
+            self.func = func
+            self.player = -1
+            
+        # Override
+        def enter(self):
+            print "State_Uptime enter()"
+            
+            # 起動時間を取得
+            time = self.getUptime()
+
+            # 発話内容を作成。
+            if time != "":
+                msg = "起動してから、%s分経ちました。" % time
+            else:
+                msg = "起動時間の取得に失敗しました。"
+
+            # 発話
+            self.player = self.func.speak(msg)
+
+        # Override
+        def execute(self, dtmf=-1):
+            print "State_Uptime execute() %s" % dtmf
+
+            if dtmf == "0":
+                # イントロステートに変更
+                self.func.changeState(self.func.State_Help(self.func))
+            elif dtmf == "1":
+                # CPU温度ステートに変更
+                self.func.changeState(self.func.State_CPUTemp(self.func))
+            elif dtmf == "2":
+                # メモリ状況ステートに変更
+                self.func.changeState(self.func.State_MemState(self.func))
+            elif dtmf == "3":
+                # 起動時間ステートに変更
+                self.func.changeState(self.func.State_Uptime(self.func))
+                
+        # Override
+        def exit(self):
+            print "State_Uptime exit()"
+
+            # 音声の再生に使ったプレイヤーの後処理をする
+            if self.player != -1:
+                player_slot = pj.Lib.instance().player_get_slot(self.player)
+                call_slot = current_call.info().conf_slot
+                pj.Lib.instance().conf_disconnect(player_slot, call_slot)
+                pj.Lib.instance().player_destroy(self.player)
+
+
+        def getUptime(self):
+            """
+            UPTIMEの情報を取得して、起動時間を返す。
+            """
+            try:
+                # uptimeの情報を取得
+                s = subprocess.check_output(["uptime"])
+
+                # 取得した値はこのようになっている。
+                # 09:04:21 up 58 min,  1 user,  load average: 0.02, 0.03, 0.05
+                # 09:09:29 up  1:03,  1 user,  load average: 0.01, 0.02, 0.05
+                
+                # "up"から","のあいだで切り出し。
+                val = s[s.index("up")+len("up"):s.index(",")]
+
+                # 1時間以上で表記が変わる。
+                if val.find("min") != -1:
+                    val = val[0:val.index(" min")]
+                else:
+                    val = val.replace(":", "時間")
+
+                # 不要なスペースが含まれている場合は削除
+                val = val.replace(" ", "")
+
+            except ValueError, e:
+                val = ""
+
+            return val
+
 
 
 # Logging callback
