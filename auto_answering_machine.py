@@ -2,22 +2,12 @@
 # -*- coding: utf-8 -*-
 
 import pjsua as pj
-#from abc import ABCMeta, abstractmethod
 import abc
+import argparse
 import math
 import subprocess
 import time
 import wave
-
-
-
-# セッティング
-
-LOG_LEVEL = 3
-PORT = 5060
-
-# セッティングここまで
-
 
 
 class PhoneCallback(pj.AccountCallback, pj.CallCallback):
@@ -31,11 +21,11 @@ class PhoneCallback(pj.AccountCallback, pj.CallCallback):
 
         self.func = func
  
-    """
-    Override(pj.AccountCallback)
-    Notification on incoming call
-    """
     def on_incoming_call(self, call):
+        """
+        Override(pj.AccountCallback)
+        Notification on incoming call
+        """
         global current_call 
 
         # 電話中
@@ -46,11 +36,11 @@ class PhoneCallback(pj.AccountCallback, pj.CallCallback):
         print "Incoming call from ", call.info().remote_uri
 
         current_call = call
-
         current_call.set_callback(self)
+
+        # 受話する
         current_call.answer(180)        
         current_call.answer(200)
-
 
 
     def on_dtmf_digit(self, digits):
@@ -58,8 +48,8 @@ class PhoneCallback(pj.AccountCallback, pj.CallCallback):
         Override(pj.CallCallback)
         Notification on incoming DTMF digits.
         """
+        print "INCOMING DTMF:%s" % digits
 
-#        print "INCOMING DTMF:%s" % digits
         try:
             self.func.update(dtmf=digits)
         except Exception, e:
@@ -72,7 +62,6 @@ class PhoneCallback(pj.AccountCallback, pj.CallCallback):
         Notification when call state has changed
         """
         global current_call
-        global PROCESSING
 
         print "Call with", self.call.info().remote_uri,
         print "is", self.call.info().state_text,
@@ -82,7 +71,6 @@ class PhoneCallback(pj.AccountCallback, pj.CallCallback):
         if self.call.info().state == pj.CallState.DISCONNECTED:
             current_call = None
             print 'Current call is', current_call
-            PROCESSING = False
 
     def on_media_state(self):
         """
@@ -92,11 +80,9 @@ class PhoneCallback(pj.AccountCallback, pj.CallCallback):
         if self.call.info().media_state == pj.MediaState.ACTIVE:
             # Connect the call to sound device
             call_slot = self.call.info().conf_slot
-#            pj.Lib.instance().conf_connect(call_slot, 0)
-#            pj.Lib.instance().conf_connect(0, call_slot)
             print "Media is now active"
             
-            # 実行
+            # イントロステートをセットして自動応答スタート
             self.func.changeState(self.func.State_Intro(self.func))
 
         else:
@@ -134,33 +120,38 @@ class StateBase():
     
 class Func_AnsweringMachine(FunctionBase):
 
-    prevState = None
-    currentState = None
+    """
+    自動応答マシンの機能クラス。(FunctionBaseクラスを継承)
+    DTMF入力に応じて、CPU温度、メモリ状況、起動時間を発話する。
+    """
 
-    AQUESTALKPI_PATH = "/home/pi/aquestalkpi/AquesTalkPi"
-    TMP_DIR = "/tmp/"
-    TMPFILE_NAME = "aqout.wav"
-    TMPFILE_PATH = TMP_DIR + TMPFILE_NAME
+    def __init__(self, aq_path, tmp_dir, tmpfile_name):
+        # パラメータを保存
+        self.AQUESTALKPI_PATH = aq_path
+        self.TMPFILE_PATH = tmp_dir + tmpfile_name
 
-    def __init__(self):
+        # 初期ステートを設定。
         self.currentState = self.State_Intro(self)
 
     # Override
     def update(self, dtmf=-1):
 #        print "DTMF:%s" % dtmf
-        # Trap
-        assert isinstance(self.currentState, StateBase), "StateBaseクラスじゃないよ"
-        # Fire
+        # StateBaseクラスを継承していない場合はエラー
+        assert isinstance(self.currentState, StateBase)
+        # 実行
         self.currentState.execute(dtmf)
 
     def changeState(self, state):
-        print "ChangeState()"
-        assert isinstance(state, StateBase), "StateBaseクラスじゃないよ"
+        # StateBaseクラスを継承していない場合はエラー
+        assert isinstance(state, StateBase)
 
+        # 現在のステートクラスのexit()を実行
         self.currentState.exit()
 
+        # 新しいステートクラスを、現在のステートクラスとして設定
         self.currentState = state
 
+        # 現在のステートクラス（新ステートクラス）のenter()を実行
         self.currentState.enter()
 
 
@@ -179,7 +170,7 @@ class Func_AnsweringMachine(FunctionBase):
             print "Error open wavfile", e
             return 0
 
-        print "長さ（秒）:", math.ceil(float(wr.getnframes()) / wr.getframerate())
+#        print "長さ（秒）:", math.ceil(float(wr.getnframes()) / wr.getframerate())
         
         # 小数点切り上げしたファイルの長さ(秒)を返す
         return math.ceil(float(wr.getnframes()) / wr.getframerate())
@@ -191,12 +182,6 @@ class Func_AnsweringMachine(FunctionBase):
         # テキストが空の場合はリターン
         if text == None:
             return -1
-
-        """
-        # 電話が切れている場合はリターン
-        if current_call == None:
-            return -1
-        """
 
         # textを音声に変換したwavファイルを作成。
         if self.createWavfile(text) == 0:
@@ -237,13 +222,10 @@ class Func_AnsweringMachine(FunctionBase):
             self.player = -1
 
         def enter(self):
-            print "State_Intro enter()"
-            msg = "こんにちは。こちらはラズベリーパイです。CPU温度を知りたい場合は、1を。メモリ状況を知りたい場合は、2を。起動時間を知りたい場合は、3を入力してください。途中で使い方を確認したくなった場合は0を入力してください。"
+            msg = "こんにちは。こちらはラズベリーパイです。CPU温度を知りたい場合は、1を。メモリ状況を知りたい場合は、2を。起動時間を知りたい場合は、3を入力してください。途中で使い方を確認したくなった場合は、0を入力してください。"
             self.player = self.func.speak(msg)
 
         def execute(self, dtmf=-1):
-            print "State_Intro execute() %s" % dtmf
-
             if dtmf == "1":
                 # CPU温度ステートに変更
                 self.func.changeState(self.func.State_CPUTemp(self.func))
@@ -255,15 +237,15 @@ class Func_AnsweringMachine(FunctionBase):
                 self.func.changeState(self.func.State_Uptime(self.func))
 
         def exit(self):
-            print "State_Intro exit()"
-
             # 音声の再生に使ったプレイヤーの後処理をする
-            if self.player != -1:
-                player_slot = pj.Lib.instance().player_get_slot(self.player)
-                call_slot = current_call.info().conf_slot
-                pj.Lib.instance().conf_disconnect(player_slot, call_slot)
-                pj.Lib.instance().player_destroy(self.player)
-
+            if self.player == -1:
+                return
+            
+            player_slot = pj.Lib.instance().player_get_slot(self.player)
+            call_slot = current_call.info().conf_slot
+            pj.Lib.instance().conf_disconnect(player_slot, call_slot)
+            pj.Lib.instance().player_destroy(self.player)
+            
     class State_Help(StateBase):
         """
         使い方の説明を発話する。
@@ -273,13 +255,10 @@ class Func_AnsweringMachine(FunctionBase):
             self.player = -1
 
         def enter(self):
-            print "State_Help enter()"
-            msg = "CPU温度を知りたい場合は、1を。メモリ状況を知りたい場合は、2を。起動時間を知りたい場合は、3を入力してください。途中で使い方を確認したくなった場合は0を入力してください。"
+            msg = "CPU温度を知りたい場合は、1を。メモリ状況を知りたい場合は、2を。起動時間を知りたい場合は、3を入力してください。途中で使い方を確認したくなった場合は、0を入力してください。"
             self.player = self.func.speak(msg)
 
         def execute(self, dtmf=-1):
-            print "State_Help execute() %s" % dtmf
-
             if dtmf == "1":
                 # CPU温度ステートに変更
                 self.func.changeState(self.func.State_CPUTemp(self.func))
@@ -291,15 +270,15 @@ class Func_AnsweringMachine(FunctionBase):
                 self.func.changeState(self.func.State_Uptime(self.func))
 
         def exit(self):
-            print "State_Help exit()"
-
             # 音声の再生に使ったプレイヤーの後処理をする
-            if self.player != -1:
-                player_slot = pj.Lib.instance().player_get_slot(self.player)
-                call_slot = current_call.info().conf_slot
-                pj.Lib.instance().conf_disconnect(player_slot, call_slot)
-                pj.Lib.instance().player_destroy(self.player)
+            if self.player == -1:
+                return
 
+            player_slot = pj.Lib.instance().player_get_slot(self.player)
+            call_slot = current_call.info().conf_slot
+            pj.Lib.instance().conf_disconnect(player_slot, call_slot)
+            pj.Lib.instance().player_destroy(self.player)
+            
 
     class State_CPUTemp(StateBase):
         """
@@ -311,8 +290,6 @@ class Func_AnsweringMachine(FunctionBase):
             
         # Override
         def enter(self):
-            print "State_CPUTemp enter()"
-            
             # CPU温度を取得
             temp = self.getCPUTemp()
 
@@ -327,10 +304,8 @@ class Func_AnsweringMachine(FunctionBase):
 
         # Override
         def execute(self, dtmf=-1):
-            print "State_CPUTemp execute() %s" % dtmf
-
             if dtmf == "0":
-                # イントロステートに変更
+                # ヘルプステートに変更
                 self.func.changeState(self.func.State_Help(self.func))
             elif dtmf == "1":
                 # CPU温度ステートに変更
@@ -344,15 +319,15 @@ class Func_AnsweringMachine(FunctionBase):
                 
         # Override
         def exit(self):
-            print "State_CPUTemp exit()"
-
             # 音声の再生に使ったプレイヤーの後処理をする
-            if self.player != -1:
-                player_slot = pj.Lib.instance().player_get_slot(self.player)
-                call_slot = current_call.info().conf_slot
-                pj.Lib.instance().conf_disconnect(player_slot, call_slot)
-                pj.Lib.instance().player_destroy(self.player)
+            if self.player == -1:
+                return
 
+            player_slot = pj.Lib.instance().player_get_slot(self.player)
+            call_slot = current_call.info().conf_slot
+            pj.Lib.instance().conf_disconnect(player_slot, call_slot)
+            pj.Lib.instance().player_destroy(self.player)
+            
 
         def getCPUTemp(self):
             """
@@ -376,8 +351,6 @@ class Func_AnsweringMachine(FunctionBase):
             
         # Override
         def enter(self):
-            print "State_MemState enter()"
-            
             # メモリ状況を取得
             mem = self.getMemState()
 
@@ -392,10 +365,8 @@ class Func_AnsweringMachine(FunctionBase):
 
         # Override
         def execute(self, dtmf=-1):
-            print "State_MemState execute() %s" % dtmf
-
             if dtmf == "0":
-                # イントロステートに変更
+                # ヘルプステートに変更
                 self.func.changeState(self.func.State_Help(self.func))
             elif dtmf == "1":
                 # CPU温度ステートに変更
@@ -409,15 +380,15 @@ class Func_AnsweringMachine(FunctionBase):
                 
         # Override
         def exit(self):
-            print "State_MemState exit()"
-
             # 音声の再生に使ったプレイヤーの後処理をする
-            if self.player != -1:
-                player_slot = pj.Lib.instance().player_get_slot(self.player)
-                call_slot = current_call.info().conf_slot
-                pj.Lib.instance().conf_disconnect(player_slot, call_slot)
-                pj.Lib.instance().player_destroy(self.player)
+            if self.player == -1:
+                return
 
+            player_slot = pj.Lib.instance().player_get_slot(self.player)
+            call_slot = current_call.info().conf_slot
+            pj.Lib.instance().conf_disconnect(player_slot, call_slot)
+            pj.Lib.instance().player_destroy(self.player)
+            
 
         def getMemState(self):
             """
@@ -458,7 +429,6 @@ class Func_AnsweringMachine(FunctionBase):
             
         # Override
         def enter(self):
-            print "State_Uptime enter()"
             
             # 起動時間を取得
             time = self.getUptime()
@@ -474,10 +444,9 @@ class Func_AnsweringMachine(FunctionBase):
 
         # Override
         def execute(self, dtmf=-1):
-            print "State_Uptime execute() %s" % dtmf
 
             if dtmf == "0":
-                # イントロステートに変更
+                # ヘルプステートに変更
                 self.func.changeState(self.func.State_Help(self.func))
             elif dtmf == "1":
                 # CPU温度ステートに変更
@@ -491,15 +460,15 @@ class Func_AnsweringMachine(FunctionBase):
                 
         # Override
         def exit(self):
-            print "State_Uptime exit()"
-
             # 音声の再生に使ったプレイヤーの後処理をする
-            if self.player != -1:
-                player_slot = pj.Lib.instance().player_get_slot(self.player)
-                call_slot = current_call.info().conf_slot
-                pj.Lib.instance().conf_disconnect(player_slot, call_slot)
-                pj.Lib.instance().player_destroy(self.player)
+            if self.player == -1:
+                return
 
+            player_slot = pj.Lib.instance().player_get_slot(self.player)
+            call_slot = current_call.info().conf_slot
+            pj.Lib.instance().conf_disconnect(player_slot, call_slot)
+            pj.Lib.instance().player_destroy(self.player)
+            
 
         def getUptime(self):
             """
@@ -537,32 +506,77 @@ def log_cb(level, str, len):
     print str,
 
 if __name__ == "__main__":
-    current_call = None
-    PROCESSING = False
+
+    # 引数解析
+    parser = argparse.ArgumentParser(description=u"SIPによる接続に自動応答し、DTMF入力値に応じて、CPU温度、メモリ状況、起動時間を発話する。",
+                                     formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    
+    parser.add_argument('-a', '--aquestalkpi',
+                        dest="aquestalk_pi_path",
+                        help="Path to AquesTalkPi")
+    
+    parser.add_argument("-d", "--dir",
+                        dest="tmp_dir",
+                        default="/tmp/",
+                        help="Path of directory to save temporary wav file")
+
+    parser.add_argument("-l", "--loglevel",
+                        dest="log_level",
+                        default=3,
+                        help="Level of input verbosity")
+
+    parser.add_argument("-n", "--name",
+                        dest="tmpfile_name",
+                        default="aqout.wav",
+                        help="Name of temporary wav file")
+
+    parser.add_argument("-p", "--port",
+                        dest="in_port_num",
+                        type=int,
+                        help="Incoming port number")
+
+    args = parser.parse_args()
+
+
+    # 必須項目が引数で指定されていない場合は、問い合わせする。
+    if args.aquestalk_pi_path is None:
+        args.aquestalk_pi_path = raw_input("Path to AquesTalkPi: ")
+
+    if args.in_port_num is None:
+        args.in_port_num = int(raw_input("Incoming port number: "))
 
     #
-    lib = pj.Lib()
-
     try:
-        lib.init(log_cfg = pj.LogConfig(level=LOG_LEVEL, callback=log_cb))
+        current_call = None
 
-        transport = lib.create_transport(pj.TransportType.UDP, pj.TransportConfig(PORT))
+        lib = pj.Lib()
+        lib.init(log_cfg = pj.LogConfig(level=args.log_level, callback=log_cb))
+
+        transport = lib.create_transport(pj.TransportType.UDP, pj.TransportConfig(args.in_port_num))
         print "\nListening on", transport.info().host, 
-        print "port", transport.info().port, "\n"
+        print "port", transport.info().port
 
         #
         lib.set_null_snd_dev()
 
         # Start the library
         lib.start()
-        PROCESSING = True
+
+        # Init Function
+        myfunc = Func_AnsweringMachine(aq_path=args.aquestalk_pi_path,
+                                       tmp_dir=args.tmp_dir,
+                                       tmpfile_name=args.tmpfile_name)
 
         # Create local account
-        acc = lib.create_account_for_transport(transport, cb=PhoneCallback(Func_AnsweringMachine()))
+        acc = lib.create_account_for_transport(transport, cb=PhoneCallback(myfunc))
 
-        while(PROCESSING):
-            pass
-
+        # loop
+        while(True):
+            var = raw_input("Please type 'q' to quit\n")
+            if var == "q":
+                break
+            
+        # cleaning
         transport = None
         acc.delete()
         acc = None
@@ -573,7 +587,3 @@ if __name__ == "__main__":
         print "Exception: %s" % e
         lib.destory()
         lib = None
-
-
-
-
