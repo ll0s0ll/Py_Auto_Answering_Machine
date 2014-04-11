@@ -1,17 +1,41 @@
 #! /usr/bin/env python                                                                   
 # -*- coding: utf-8 -*-
 
-import pjsua as pj
+"""
+auto_answering_machine.py
+
+Copyright (C) 2014 Shun ITO <movingentity@gmail.com>
+
+This program is free software; you can redistribute it and/or
+modify it under the terms of the GNU General Public License
+as published by the Free Software Foundation; either version 2
+of the License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+"""
+
 import abc
 import argparse
 import math
+import pjsua as pj
 import subprocess
 import time
 import wave
 
 
 class PhoneCallback(pj.AccountCallback, pj.CallCallback):
-
+    """
+    電話機能のコールバッククラス。
+    受話、DTMF受付等をする。
+    DTMFを受け付けると、Functionクラスのupdate()を実行する。
+    """
     def __init__(self, func, account=None, call=None):
         pj.AccountCallback.__init__(self, account)
         pj.CallCallback.__init__(self, call)
@@ -68,6 +92,7 @@ class PhoneCallback(pj.AccountCallback, pj.CallCallback):
         print "last code =", self.call.info().last_code, 
         print "(" + self.call.info().last_reason + ")"
         
+        # 切断
         if self.call.info().state == pj.CallState.DISCONNECTED:
             current_call = None
             print 'Current call is', current_call
@@ -135,7 +160,6 @@ class Func_AnsweringMachine(FunctionBase):
 
     # Override
     def update(self, dtmf=-1):
-#        print "DTMF:%s" % dtmf
         # StateBaseクラスを継承していない場合はエラー
         assert isinstance(self.currentState, StateBase)
         # 実行
@@ -156,7 +180,11 @@ class Func_AnsweringMachine(FunctionBase):
 
 
     def createWavfile(self, text):
-        # textを読んだ音声データを生成
+        """
+        渡されたテキストをAquesTalk Piを使ってwavファイルに変換、
+        指定されたTMPディレクトリに、指定された名前で保存する。
+        Return: 音声の長さ(秒)
+        """
         try:
             subprocess.check_call([self.AQUESTALKPI_PATH, text, "-o", self.TMPFILE_PATH])
         except subprocess.CalledProcessError, (p):
@@ -177,6 +205,12 @@ class Func_AnsweringMachine(FunctionBase):
 
 
     def speak(self, text):
+        """
+        渡されたテキストをwavファイルに変換して、
+        できたwavファイルを再生する。
+        wavファイルは読み込み後、削除する。
+        Return: Player番号
+        """
         global current_call
 
         # テキストが空の場合はリターン
@@ -480,6 +514,8 @@ class Func_AnsweringMachine(FunctionBase):
 
                 # 取得した値はこのようになっている。
                 # 09:04:21 up 58 min,  1 user,  load average: 0.02, 0.03, 0.05
+                
+                # 1時間を超えるとこのようになる。
                 # 09:09:29 up  1:03,  1 user,  load average: 0.01, 0.02, 0.05
                 
                 # "up"から","のあいだで切り出し。
