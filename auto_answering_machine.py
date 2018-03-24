@@ -186,7 +186,10 @@ class Func_AnsweringMachine(FunctionBase):
         Return: 音声の長さ(秒)
         """
         try:
+            # 声種f1
             subprocess.check_call([self.AQUESTALKPI_PATH, text, "-o", self.TMPFILE_PATH])
+            # 声種f2
+            #subprocess.check_call([self.AQUESTALKPI_PATH, "-v", "f2", text, "-o", self.TMPFILE_PATH])
         except subprocess.CalledProcessError, (p):
             print 'subprocess.CalledProcessError: cmd:%s returncode:%s' % (p.cmd, p.returncode)
             return 0
