@@ -2,7 +2,9 @@
 
 Raspberry PiにIP電話をかけると、音声ガイダンスで端末の状態を教えてくれると面白いなと思い、作ってみることにしました。
 
-動作を収録した動画を[YouTube](https://www.youtube.com/watch?v=8SgVOdOgTx8)にて公開しています。
+動作を収録した動画を撮りました。
+
+https://user-images.githubusercontent.com/3046839/210189023-49534277-d50f-4e8f-829e-1a93996d0490.mp4
 
 ## 概要
 SIP(Session Initiation Protocol)による着信に自動応答し、ガイダンスを発話、DTMF(Dual-Tone Multi-Frequency)入力を待ち受けます。DTMF入力があった場合、入力された値に応じて、CPU温度、メモリ容量、起動時間、ヘルプを発話します。相手が電話を切ると、待機状態に戻ります。プログラミング言語にはPython(2.7)を使っています。
